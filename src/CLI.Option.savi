@@ -1,0 +1,120 @@
+// For now we have an imperative API for creating CLI argument parsers,
+// but in the future we will create a declarator-based API to replace this.
+// Savi doesn't yet support the specific things we want to do with declarators.
+//
+// Alternatively we could use `TraceData` and extend it to support things
+// like doc strings, which could let us leverage that existing mechanism.
+
+// TODO: Use this alias when Savi compiler is fixed to allow it.
+// :alias CLI.Option.Type: (Bool | I64 | F64 | String)
+
+:trait CLI.Option.Def.Any
+  :fun name String
+
+:class CLI.Option.Def(T IntoString'val) // TODO: use `CLI.Option.Type` when Savi supports it.
+  :is CLI.Option.Def.Any
+  :let default T
+  :let name String
+  :let short_char U32
+  :new (@default, @name, @short_char = 0)
+
+  :fun _parse_value!(path Array(String)'ref, value_string String): T
+    case T <: (
+    | Bool |
+      value_string != "false" &&
+      value_string != "False" &&
+      value_string != "FALSE" &&
+      value_string != "0"
+    | I64 |
+      try (value_string.parse_i64! |
+        error! CLI.Error.new(path, "not a valid integer value: \(value_string)")
+      )
+    | F64 |
+      try (value_string.parse_f64! |
+        error! CLI.Error.new(path, "not a valid floating-point value: \(value_string)")
+      )
+    | String |
+      value_string
+    |
+      error! CLI.Error.new(path, "unsupported option type: \(reflection_of_type T)")
+    )
+
+:class CLI.Option.Defs
+  :let _all_defs: Map(String, CLI.Option.Def.Any).new
+  :let _all_short_defs: Map(U32, CLI.Option.Def.Any).new
+  :let flag_defs: Map(String, CLI.Option.Def(Bool)).new
+  :let i64_defs: Map(String, CLI.Option.Def(I64)).new
+  :let f64_defs: Map(String, CLI.Option.Def(F64)).new
+  :let string_defs: Map(String, CLI.Option.Def(String)).new
+
+  :fun _get_def!(path, name String)
+    :errors CLI.Error
+    try (@_all_defs[name]! |
+      error! CLI.Error.new(path, "unknown option: \(name)")
+    )
+
+  :fun _get_def_by_short_char!(path, short_char U32)
+    :errors CLI.Error
+    try (@_all_short_defs[short_char]! |
+      error! CLI.Error.new(path, "unknown short option: \(String.new.push_utf8(short_char))")
+    )
+
+  :fun ref flag(default, name String, short_char = 0)
+    @_all_defs[name] = @flag_defs[name] = def =
+      CLI.Option.Def(Bool).new(default, name, short_char)
+    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
+    @
+
+  :fun ref i64(default, name String, short_char = 0)
+    @_all_defs[name] = @i64_defs[name] = def =
+      CLI.Option.Def(I64).new(default, name, short_char)
+    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
+    @
+
+  :fun ref f64(default, name String, short_char = 0)
+    @_all_defs[name] = @f64_defs[name] = def =
+      CLI.Option.Def(F64).new(default, name, short_char)
+    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
+    @
+
+  :fun ref string(default, name String, short_char = 0)
+    @_all_defs[name] = @string_defs[name] = def =
+      CLI.Option.Def(String).new(default, name, short_char)
+    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
+    @
+
+:class CLI.Options
+  :let flag: Map(String, Bool).new
+  :let i64: Map(String, I64).new
+  :let f64: Map(String, F64).new
+  :let string: Map(String, String).new
+
+  :fun ref _capture_arg!(path, def CLI.Option.Def.Any, value_string)
+    :errors CLI.Error
+    try (
+      case def <: (
+      | CLI.Option.Def(Bool) |
+        @flag[def.name] =
+          def._parse_value!(path, value_string).as!(Bool) // TODO: as! shouldn't be needed here
+      | CLI.Option.Def(I64) |
+        @i64[def.name] =
+          def._parse_value!(path, value_string).as!(I64) // TODO: as! shouldn't be needed here
+      | CLI.Option.Def(F64) |
+        @f64[def.name] =
+          def._parse_value!(path, value_string).as!(F64) // TODO: as! shouldn't be needed here
+      | CLI.Option.Def(String) |
+        @string[def.name] =
+          def._parse_value!(path, value_string).as!(String) // TODO: as! shouldn't be needed here
+      |
+        error!
+      )
+    | error (CLI.Error | None) |
+      error! error if error <: CLI.Error
+      error! CLI.Error.new(path, "unsupported option type")
+    )
+
+  :fun ref _prefill_defaults_from(defs CLI.Option.Defs)
+    defs.flag_defs.each -> (name, def | @flag[name] = def.default)
+    defs.i64_defs.each -> (name, def | @i64[name] = def.default)
+    defs.f64_defs.each -> (name, def | @f64[name] = def.default)
+    defs.string_defs.each -> (name, def | @string[name] = def.default)
