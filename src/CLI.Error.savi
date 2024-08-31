@@ -1,0 +1,6 @@
+:class val CLI.Error
+  :let path String
+  :let message String
+  :new _new(@path, @message)
+  :fun non new(path Array(String)'box, message)
+    @_new(String.join(path, "->"), message)

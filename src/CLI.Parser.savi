@@ -1,0 +1,126 @@
+// For now, this implementation is one big tangled function and I ain't proud
+// of it, but it's good enough for now (this initial CLI parser is just a
+// means to an end), and there's room to refactor later to match the same spec.
+
+:class CLI.Parser
+  :let defs CLI.Option.Defs
+  :let options: CLI.Options.new
+  :let positional_args: Array(String).new
+  :let trailing_args: Array(String).new
+
+  :new parse!(@defs, args Array(String)'box)
+    :errors CLI.Error
+    last_option_name = ""
+    now_trailing = False
+    path = Array(String).new
+
+    @options._prefill_defaults_from(@defs)
+
+    args.each -> (arg |
+      // Handle trailing arguments, when in the trailing state.
+      if now_trailing (
+        @trailing_args << arg
+        next
+      )
+
+      // Handle the case where we have an option already waiting for a value.
+      if last_option_name.is_not_empty (
+        def = @defs._get_def!(path, last_option_name)
+        if arg.starts_with("-") (
+          error! CLI.Error.new(path, "missing value for option: \(last_option_name)")
+        |
+          path << def.name
+          @options._capture_arg!(path, def, arg)
+          try path.pop!
+        )
+        last_option_name = ""
+        next
+      )
+
+      case (
+      | arg.starts_with("--") |
+        arg = arg.trim(2)
+
+        // Break the outer loop if we encounter a double dash alone.
+        // This means everything else will be trailing args.
+        if arg.is_empty (
+          now_trailing = True
+          next
+        )
+
+        // Split the argument at `=` to separate name from value.
+        try (
+          pair = arg.split2!('=')
+          name = pair.head
+          value_string = pair.tail
+        |
+          // If there is no `=`, we will expect a value later, except boolean,
+          // which gets treated as "True" when present with no `=` value.
+          def = @defs._get_def!(path, arg)
+          if def <: CLI.Option.Def(Bool) (
+            @options.flag[def.name] = True
+          |
+            last_option_name = arg
+          )
+          next
+        )
+
+        // Find the corresponding definition and capture the argument.
+        def = @defs._get_def!(path, name)
+        path << name
+        @options._capture_arg!(path, def, value_string)
+        try path.pop!
+
+      | arg.starts_with("-") |
+        error! CLI.Error.new(path, "invalid argument: -") if arg.size <= 1
+
+        // Iterate over each character in the short option arg string.
+        arg.each_char_with_index_and_width(1) -> (char, index, width |
+          // If we encounter an `=`, we expect that the rest here is the value.
+          if char == '=' (
+            if last_option_name.is_empty (
+              error! CLI.Error.new(path, "invalid argument: \(arg)")
+            )
+
+            name = last_option_name
+            value_string = arg.trim(index + 1)
+            def = @defs._get_def!(path, name)
+            path << name
+            @options._capture_arg!(path, def, value_string)
+            try path.pop!
+
+            last_option_name = ""
+            break arg
+          )
+
+          // Handle the case where we have an option already waiting for a value.
+          if last_option_name.is_not_empty (
+            error! CLI.Error.new(path, "missing value for option: \(last_option_name)")
+          )
+
+          // Find the corresponding definition for this character.
+          def = @defs._get_def_by_short_char!(path, char)
+
+          // Now we are waiting for this new option to get a value, unless
+          // it is a boolean, in which case we assign true to it.
+          if def <: CLI.Option.Def(Bool) (
+            @options.flag[def.name] = True
+          |
+            last_option_name = def.name
+          )
+        )
+      |
+        @positional_args << arg
+      )
+    )
+
+    // At the end of the arguments list, handle the case where
+    // we still have an option waiting for a value.
+    if last_option_name.is_not_empty (
+      waiting_def = @defs._get_def!(path, last_option_name)
+      if waiting_def <: CLI.Option.Def(Bool) (
+        @options.flag[waiting_def.name] = True
+      |
+        error! CLI.Error.new(path, "missing value for option: \(last_option_name)")
+      )
+    )
