@@ -1,27 +1,55 @@
+:class _ExampleCLIOptions
+  :var verbose Bool: False
+  :var min I64: 0
+  :var max I64: 100
+  :var red F64: 1.0
+  :var green F64: 1.0
+  :var blue F64: 1.0
+  :var name String: "Alice"
+
+  :is TraceData.Mutable
+  :fun ref trace_data_mutable(trace TraceData.Mutator) None
+    trace.object(identity_digest_of @) -> (key |
+      case key == (
+      | "verbose" | trace.replace_bool(@verbose) -> (v | @verbose = v)
+      | "min"     | trace.replace_i64(@min)      -> (v | @min = v)
+      | "max"     | trace.replace_i64(@max)      -> (v | @max = v)
+      | "red"     | trace.replace_f64(@red)      -> (v | @red = v)
+      | "green"   | trace.replace_f64(@green)    -> (v | @green = v)
+      | "blue"    | trace.replace_f64(@blue)     -> (v | @blue = v)
+      | "name"    | trace.replace_string(@name)  -> (v | @name = v)
+      )
+    )
+
+  // TODO: We eventually want to use custom declarators and/or docstrings
+  // to generate the CLI help text and definitions. But for now, we define
+  // them with an imperative trace method.
+  :is CLI.Option.Data
+  :fun non define_cli_options(defs CLI.Option.Defs) None
+    defs.bool("verbose", 'v')
+    defs.i64("min", 'm')
+    defs.i64("max", 'M')
+    defs.f64("red", 'r')
+    defs.f64("green", 'g')
+    defs.f64("blue", 'b')
+    defs.string("name", 'n')
+
 :class CLI.Spec
   :is Spec
   :const describes: "CLI"
 
   :it "can define options and parse arguments against them"
-    defs = CLI.Option.Defs.new
-
-    defs.flag(False, "verbose", 'v')
-    defs.i64(0, "min", 'm')
-    defs.i64(100, "max", 'M')
-    defs.f64(1.0, "red", 'r')
-    defs.f64(1.0, "green", 'g')
-    defs.f64(1.0, "blue", 'b')
-    defs.string("Alice", "name", 'n')
+    opts = _ExampleCLIOptions.new
 
     try (
-      cli = CLI.Parser.parse!(defs, [])
-      assert: cli.options.flag["verbose"]! == False
-      assert: cli.options.i64["min"]! == 0
-      assert: cli.options.i64["max"]! == 100
-      assert: cli.options.f64["red"]! == 1.0
-      assert: cli.options.f64["green"]! == 1.0
-      assert: cli.options.f64["blue"]! == 1.0
-      assert: cli.options.string["name"]! == "Alice"
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [])
+      assert: cli.options.verbose == False
+      assert: cli.options.min == 0
+      assert: cli.options.max == 100
+      assert: cli.options.red == 1.0
+      assert: cli.options.green == 1.0
+      assert: cli.options.blue == 1.0
+      assert: cli.options.name == "Alice"
       assert: cli.positional_args == []
       assert: cli.trailing_args == []
     | error |
@@ -29,16 +57,16 @@
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, [
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
         "-vr", "0.5", "--green", "0.1", "--min=10", "-M", "200", "-n=Bob=Bibble"
       ])
-      assert: cli.options.flag["verbose"]! == True
-      assert: cli.options.i64["min"]! == 10
-      assert: cli.options.i64["max"]! == 200
-      assert: cli.options.f64["red"]! == 0.5
-      assert: cli.options.f64["green"]! == 0.1
-      assert: cli.options.f64["blue"]! == 1.0
-      assert: cli.options.string["name"]! == "Bob=Bibble"
+      assert: cli.options.verbose == True
+      assert: cli.options.min == 10
+      assert: cli.options.max == 200
+      assert: cli.options.red == 0.5
+      assert: cli.options.green == 0.1
+      assert: cli.options.blue == 1.0
+      assert: cli.options.name == "Bob=Bibble"
       assert: cli.positional_args == []
       assert: cli.trailing_args == []
     | error |
@@ -46,52 +74,64 @@
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, [
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
         "foo", "-v", "bar", "baz", "--min=10", "blah", "--", "trail", "ing"
       ])
-      assert: cli.options.flag["verbose"]! == True
-      assert: cli.options.i64["min"]! == 10
+      assert: cli.options.verbose == True
+      assert: cli.options.min == 10
       assert: cli.positional_args == ["foo", "bar", "baz", "blah"]
       assert: cli.trailing_args == ["trail", "ing"]
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["--bogus"])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "--bogus"
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "unknown option: bogus"
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["--verbose", "--min"])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "--verbose", "--min"
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "missing value for option: min"
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["--min", "--verbose"])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "--min", "--verbose"
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "missing value for option: min"
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["-vm"])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "-vm"
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "missing value for option: min"
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["-mv"])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "-mv"
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "missing value for option: min"
     )
 
     try (
-      cli = CLI.Parser.parse!(defs, ["-="])
+      cli = CLI.Parser(_ExampleCLIOptions).parse!(_ExampleCLIOptions.new, [
+        "-="
+      ])
       assert: "should have" == "errored"
     | error CLI.Error |
       assert: error.message == "invalid argument: -="

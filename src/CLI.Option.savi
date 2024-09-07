@@ -1,51 +1,81 @@
 // For now we have an imperative API for creating CLI argument parsers,
 // but in the future we will create a declarator-based API to replace this.
 // Savi doesn't yet support the specific things we want to do with declarators.
-//
-// Alternatively we could use `TraceData` and extend it to support things
-// like doc strings, which could let us leverage that existing mechanism.
-
-// TODO: Use this alias when Savi compiler is fixed to allow it.
-// :alias CLI.Option.Type: (Bool | I64 | F64 | String)
 
 :trait CLI.Option.Def.Any
   :fun name String
+  :fun short_char U32
+  :fun _inject!(path Array(String)'box, value_string String, options TraceData.Mutable) None
+    :errors CLI.Error
 
-:class CLI.Option.Def(T IntoString'val) // TODO: use `CLI.Option.Type` when Savi supports it.
+:class CLI.Option.Def(T IntoString'val)
   :is CLI.Option.Def.Any
-  :let default T
   :let name String
   :let short_char U32
-  :new (@default, @name, @short_char = 0)
+  :new (@name, @short_char = 0)
 
-  :fun _parse_value!(path Array(String)'ref, value_string String): T
-    case T <: (
-    | Bool |
-      value_string != "false" &&
-      value_string != "False" &&
-      value_string != "FALSE" &&
-      value_string != "0"
-    | I64 |
-      try (value_string.parse_i64! |
-        error! CLI.Error.new(path, "not a valid integer value: \(value_string)")
+  :fun _inject!(path Array(String)'box, value_string String, options TraceData.Mutable) None
+    :errors CLI.Error
+    mut _InjectAny = try (
+      case T <: (
+      | Bool   | _Inject(Bool)  .new(@name, @_parse_bool!(path, value_string))
+      | U64    | _Inject(U64)   .new(@name, @_parse_i64!(path, value_string).u64)
+      | U32    | _Inject(U32)   .new(@name, @_parse_i64!(path, value_string).u32!)
+      | U16    | _Inject(U16)   .new(@name, @_parse_i64!(path, value_string).u16!)
+      | U8     | _Inject(U8)    .new(@name, @_parse_i64!(path, value_string).u8!)
+      | I64    | _Inject(I64)   .new(@name, @_parse_i64!(path, value_string))
+      | I32    | _Inject(I32)   .new(@name, @_parse_i64!(path, value_string).i32!)
+      | I16    | _Inject(I16)   .new(@name, @_parse_i64!(path, value_string).i16!)
+      | I8     | _Inject(I8)    .new(@name, @_parse_i64!(path, value_string).i8!)
+      | F64    | _Inject(F64)   .new(@name, @_parse_f64!(path, value_string))
+      | F32    | _Inject(F32)   .new(@name, @_parse_f32!(path, value_string).f32)
+      | String | _Inject(String).new(@name, value_string)
+      |
+        error! CLI.Error.new(path, "unsupported option type: \(reflection_of_type T)")
       )
-    | F64 |
-      try (value_string.parse_f64! |
-        error! CLI.Error.new(path, "not a valid floating-point value: \(value_string)")
-      )
-    | String |
-      value_string
-    |
-      error! CLI.Error.new(path, "unsupported option type: \(reflection_of_type T)")
+    | error (CLI.Error | None) |
+      error! error if error <: CLI.Error
+      error! CLI.Error.new(path, "value out of bounds for \(reflection_of_type T): \(value_string)")
+    )
+
+    options.trace_data_mutable(mut)
+    if mut.errors.is_not_empty (
+      error! CLI.Error.new(path, String.join(mut.errors, ", "))
+    )
+
+  :fun _parse_bool!(path, value_string String) Bool
+    case value_string == (
+    | "true" | True | "false" | False
+    | "True" | True | "False" | False
+    | "TRUE" | True | "FALSE" | False
+    | "t"    | True | "f"     | False
+    | "yes"  | True | "no"    | False
+    | "Yes"  | True | "No"    | False
+    | "YES"  | True | "NO"    | False
+    | "y"    | True | "n"     | False
+    | "Y"    | True | "N"     | False
+    | "1"    | True | "0"     | False
+    | "on"   | True | "off"   | False
+    | "On"   | True | "Off"   | False
+    | "ON"   | True | "OFF"   | False
+    | error! CLI.Error.new(path, "not a valid boolean value: \(value_string)")
+    )
+
+  :fun _parse_i64!(path, value_string String) I64
+    :errors CLI.Error
+    try (value_string.parse_i64! |
+      error! CLI.Error.new(path, "not a valid integer value: \(value_string)")
+    )
+
+  :fun _parse_f64!(path, value_string String) F64
+    :errors CLI.Error
+    try (value_string.parse_f64! |
+      error! CLI.Error.new(path, "not a valid floating-point value: \(value_string)")
     )
 
 :class CLI.Option.Defs
   :let _all_defs: Map(String, CLI.Option.Def.Any).new
   :let _all_short_defs: Map(U32, CLI.Option.Def.Any).new
-  :let flag_defs: Map(String, CLI.Option.Def(Bool)).new
-  :let i64_defs: Map(String, CLI.Option.Def(I64)).new
-  :let f64_defs: Map(String, CLI.Option.Def(F64)).new
-  :let string_defs: Map(String, CLI.Option.Def(String)).new
 
   :fun _get_def!(path, name String)
     :errors CLI.Error
@@ -59,62 +89,25 @@
       error! CLI.Error.new(path, "unknown short option: \(String.new.push_utf8(short_char))")
     )
 
-  :fun ref flag(default, name String, short_char = 0)
-    @_all_defs[name] = @flag_defs[name] = def =
-      CLI.Option.Def(Bool).new(default, name, short_char)
-    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
+  :fun ref _define(def CLI.Option.Def.Any)
+    @_all_defs[def.name] = def
+    if def.short_char.is_nonzero (@_all_short_defs[def.short_char] = def)
     @
 
-  :fun ref i64(default, name String, short_char = 0)
-    @_all_defs[name] = @i64_defs[name] = def =
-      CLI.Option.Def(I64).new(default, name, short_char)
-    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
-    @
+  :fun ref bool(name, short_char = 0): @_define(CLI.Option.Def(Bool).new(name, short_char))
+  :fun ref u64(name, short_char = 0): @_define(CLI.Option.Def(U64).new(name, short_char))
+  :fun ref u32(name, short_char = 0): @_define(CLI.Option.Def(U32).new(name, short_char))
+  :fun ref u16(name, short_char = 0): @_define(CLI.Option.Def(U16).new(name, short_char))
+  :fun ref u8(name, short_char = 0): @_define(CLI.Option.Def(U8).new(name, short_char))
+  :fun ref i64(name, short_char = 0): @_define(CLI.Option.Def(I64).new(name, short_char))
+  :fun ref i32(name, short_char = 0): @_define(CLI.Option.Def(I32).new(name, short_char))
+  :fun ref i16(name, short_char = 0): @_define(CLI.Option.Def(I16).new(name, short_char))
+  :fun ref i8(name, short_char = 0): @_define(CLI.Option.Def(I8).new(name, short_char))
+  :fun ref f64(name, short_char = 0): @_define(CLI.Option.Def(F64).new(name, short_char))
+  :fun ref f32(name, short_char = 0): @_define(CLI.Option.Def(F32).new(name, short_char))
+  :fun ref string(name, short_char = 0): @_define(CLI.Option.Def(String).new(name, short_char))
 
-  :fun ref f64(default, name String, short_char = 0)
-    @_all_defs[name] = @f64_defs[name] = def =
-      CLI.Option.Def(F64).new(default, name, short_char)
-    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
-    @
+:trait ref CLI.Option.Data
+  :is TraceData.Mutable
 
-  :fun ref string(default, name String, short_char = 0)
-    @_all_defs[name] = @string_defs[name] = def =
-      CLI.Option.Def(String).new(default, name, short_char)
-    if short_char.is_nonzero (@_all_short_defs[short_char] = def)
-    @
-
-:class CLI.Options
-  :let flag: Map(String, Bool).new
-  :let i64: Map(String, I64).new
-  :let f64: Map(String, F64).new
-  :let string: Map(String, String).new
-
-  :fun ref _capture_arg!(path, def CLI.Option.Def.Any, value_string)
-    :errors CLI.Error
-    try (
-      case def <: (
-      | CLI.Option.Def(Bool) |
-        @flag[def.name] =
-          def._parse_value!(path, value_string).as!(Bool) // TODO: as! shouldn't be needed here
-      | CLI.Option.Def(I64) |
-        @i64[def.name] =
-          def._parse_value!(path, value_string).as!(I64) // TODO: as! shouldn't be needed here
-      | CLI.Option.Def(F64) |
-        @f64[def.name] =
-          def._parse_value!(path, value_string).as!(F64) // TODO: as! shouldn't be needed here
-      | CLI.Option.Def(String) |
-        @string[def.name] =
-          def._parse_value!(path, value_string).as!(String) // TODO: as! shouldn't be needed here
-      |
-        error!
-      )
-    | error (CLI.Error | None) |
-      error! error if error <: CLI.Error
-      error! CLI.Error.new(path, "unsupported option type")
-    )
-
-  :fun ref _prefill_defaults_from(defs CLI.Option.Defs)
-    defs.flag_defs.each -> (name, def | @flag[name] = def.default)
-    defs.i64_defs.each -> (name, def | @i64[name] = def.default)
-    defs.f64_defs.each -> (name, def | @f64[name] = def.default)
-    defs.string_defs.each -> (name, def | @string[name] = def.default)
+  :fun non define_cli_options(def CLI.Option.Defs) None

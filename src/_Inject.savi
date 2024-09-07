@@ -1,0 +1,48 @@
+:trait _InjectAny
+  :is TraceData.Mutator
+  :let errors Array(String): []
+
+:class _Inject(T val)
+  :is _InjectAny
+
+  :var halt Bool: False
+  :let errors Array(String): []
+
+  :let key String
+  :let value T
+  :new (@key, @value)
+
+  :fun ref object(recurse_id USize) None
+    :yields String for None
+    return if @halt
+    @halt = True
+
+    yield @key
+
+  :fun ref object_key_is_invalid None
+    @errors << "\(@key) is not a valid key"
+
+  :fun ref object_key_cannot_be_modified None
+    @errors << "\(@key) is not a CLI-parseable type"
+
+  :fun ref array(recurse_id USize, size USize) None
+    :yields USize for None
+  :fun ref array_truncate(recurse_id USize, size USize) None
+    :yields USize for None
+  :fun ref array_index_is_invalid None
+  :fun ref array_index_cannot_be_modified None
+
+  :fun ref set_none:   v = @value, if v <: None   (yield None)
+  :fun ref set_bool:   v = @value, if v <: Bool   (yield Bool[v])
+  :fun ref set_u64:    v = @value, if v <: U64    (yield U64[v])
+  :fun ref set_u32:    v = @value, if v <: U32    (yield U32[v])
+  :fun ref set_u16:    v = @value, if v <: U16    (yield U16[v])
+  :fun ref set_u8:     v = @value, if v <: U8     (yield U8[v])
+  :fun ref set_i64:    v = @value, if v <: I64    (yield I64[v])
+  :fun ref set_i32:    v = @value, if v <: I32    (yield I32[v])
+  :fun ref set_i16:    v = @value, if v <: I16    (yield I16[v])
+  :fun ref set_i8:     v = @value, if v <: I8     (yield I8[v])
+  :fun ref set_f64:    v = @value, if v <: F64    (yield F64[v])
+  :fun ref set_f32:    v = @value, if v <: F32    (yield F32[v])
+  :fun ref set_bytes:  v = @value, if v <: Bytes  (yield v)
+  :fun ref set_string: v = @value, if v <: String (yield v)
